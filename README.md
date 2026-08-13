@@ -1,70 +1,94 @@
-# Discord Music Bot — iPhone Setup Guide
+# Discord Music Bot — 24/7 Playlists + Whitelist + Booster Perks (iPhone Setup)
 
-This bot plays music in a Discord voice channel via `/play`, `/skip`, `/stop`,
-`/pause`, `/resume`, `/queue`, `/nowplaying`, `/leave`. Everything below can be
-done from Safari on your iPhone — no computer needed. The bot itself runs on a
-free cloud server (Railway), not on your phone, because iOS won't let an app
-stay alive in the background to stream audio 24/7. You just manage it from
-your phone.
+## What this bot does
 
-## 1. Create the Discord bot (5 min, in Safari)
+- **Lives in one voice channel 24/7**, looping whichever named playlist you've
+  enabled (starts with a default Juice WRLD / XXXTentacion playlist).
+- `/play` pops up a **form** asking for an artist and (optionally) a song.
+  - Artist + song → plays that track.
+  - Artist only → queues that artist's full discography, but **only if the
+    requester is a server booster**. Non-boosters get told so.
+- You (and only you) can manage:
+  - `/serverwhitelist add|remove|list` — which servers the bot is allowed in.
+    Any non-whitelisted server gets the bot auto-kicked out.
+  - `/247playlist make|delete|enable|disable <name>` — create/switch between
+    multiple named 24/7 playlists.
+  - `/song add|remove|list` — add or remove tracks from any playlist.
 
-1. Go to https://discord.com/developers/applications and log in.
-2. Tap **New Application**, name it, create it.
-3. Go to the **Bot** tab → **Add Bot**.
-4. Under **Privileged Gateway Intents**, turn on **Server Members Intent** and
-   **Message Content Intent**.
-5. Tap **Reset Token** → copy the token somewhere safe (you'll paste it into
-   Railway later). Never share this token.
-6. Go to **OAuth2 → URL Generator**. Check scopes: `bot`, `applications.commands`.
-   Under Bot Permissions check: `Connect`, `Speak`, `Send Messages`,
-   `Embed Links`, `Use Slash Commands`.
-7. Copy the generated URL, open it in a new Safari tab, and add the bot to
-   your server.
-8. On the **General Information** tab, copy the **Application ID**
-   (this is your `CLIENT_ID`).
+Everything below can be done from Safari on your iPhone — no computer needed.
 
-## 2. Put the code on GitHub
+## 1. Get your Discord IDs
 
-1. Go to https://github.com, sign up/log in (works fine in mobile Safari).
-2. Tap **+ → New repository**, name it `discord-music-bot`, create it.
-3. Tap **Add file → Upload files**, and upload every file from this project
-   (`index.js`, `package.json`, `.env.example`, `README.md`, `.gitignore`).
-4. Commit the files.
+Turn on Developer Mode: **Discord app → Settings → Advanced → Developer Mode → on.**
 
-## 3. Deploy on Railway (free tier)
+- **Your user ID (OWNER_ID):** already have it — `1509973507688370191`
+- **Server ID (AUTO_JOIN_GUILD_ID):** long-press the server icon → Copy Server ID
+- **Voice channel ID (AUTO_JOIN_CHANNEL_ID):** long-press the voice channel → Copy Channel ID
 
-1. Go to https://railway.app in Safari, sign up with your GitHub account.
-2. Tap **New Project → Deploy from GitHub repo** and select
-   `discord-music-bot`.
-3. Once it's created, open the service → **Variables** tab, and add:
-   - `DISCORD_TOKEN` = the token from step 1.5
-   - `CLIENT_ID` = the Application ID from step 1.8
-4. Go to the **Settings** tab and make sure the **Start Command** is
-   `npm start` (it should auto-detect this from `package.json`).
-5. Railway will build and deploy automatically. Watch the **Deploy Logs** tab
-   — you should see `Logged in as YourBot#1234` once it's live.
+## 2. Create the Discord bot application
 
-That's it — the bot now runs continuously in the cloud. You can turn your
-phone off and it keeps working. To restart it, redeploy it, or check logs,
-just come back to railway.app in Safari any time.
+1. https://discord.com/developers/applications → **New Application**
+2. **Bot** tab → **Add Bot** → **Reset Token** → copy it somewhere safe
+3. Turn on **Server Members Intent** and **Message Content Intent**
+4. **OAuth2 → URL Generator** → scopes: `bot`, `applications.commands`.
+   Permissions: `Connect`, `Speak`, `Send Messages`, `Embed Links`, `Use Slash Commands`
+5. Open the generated URL, add the bot to your server
+6. **General Information** tab → copy the **Application ID** (this is `CLIENT_ID`)
 
-> Railway's free tier includes a monthly usage credit that's normally enough
-> for a small always-on bot like this, but check their current pricing page
-> since limits change — if you outgrow it, Render.com's free web service tier
-> is a similar no-computer-needed alternative.
+## 3. Upload the code to GitHub
 
-## 4. Using the bot
+Create a repo, upload all files: `index.js`, `package.json`, `.env.example`, `README.md`, `.gitignore`.
 
-In your Discord server, join a voice channel, then type:
-- `/play <song name or YouTube URL>`
-- `/skip`, `/pause`, `/resume`, `/stop`, `/queue`, `/leave`
+## 4. Deploy on Railway
 
-## Notes
+1. https://railway.app → **New Project → Deploy from GitHub repo**
+2. Service → **Variables** tab → add:
+   - `DISCORD_TOKEN` — from step 2.2
+   - `CLIENT_ID` — from step 2.6
+   - `OWNER_ID` — `1509973507688370191`
+   - `AUTO_JOIN_GUILD_ID` — your server ID
+   - `AUTO_JOIN_CHANNEL_ID` — your voice channel ID
+3. Check **Deploy Logs** for `Logged in as YourBot#1234` — it should join
+   the voice channel and start playing within a few seconds.
 
-- This bot streams audio from YouTube for personal use in a private server.
+## Using it
+
+**Everyone:**
+- `/play` — opens a popup form: type an artist, and optionally a song.
+  Boosters can leave the song field blank to queue that artist's whole
+  discography (best-effort, pulled from YouTube search).
+- `/skip` `/pause` `/resume` `/stop` `/queue` `/nowplaying` `/leave`
+
+**You only (`OWNER_ID`):**
+- `/serverwhitelist add <server_id>` — whitelist a server before inviting the
+  bot there, or it auto-leaves.
+- `/serverwhitelist remove <server_id>` / `/serverwhitelist list`
+- `/247playlist make <name>` — new empty playlist
+- `/247playlist enable <name>` — make it the active 24/7 loop (switches immediately)
+- `/247playlist disable <name>` — stop looping that playlist
+- `/247playlist delete <name>` — delete it
+- `/song add <playlist> <query>` — add a track (searched on YouTube)
+- `/song remove <playlist> <index>` — remove by number (see `/song list`)
+- `/song list <playlist>` — see numbered tracks in a playlist
+
+## How the booster check works
+
+A member counts as a "booster" if Discord shows them as currently boosting
+**that server** (`member.premiumSince` is set). This is Discord's own boost
+status — there's nothing extra to configure.
+
+## Notes & limitations
+
+- `whitelist.json` and `playlists.json` are stored on Railway's disk. They
+  survive restarts, but a **fresh redeploy from GitHub can reset them**. For
+  permanent storage, add a **Volume** to the service in Railway's Settings
+  tab pointed at the project folder, then redo `/serverwhitelist add` /
+  `/247playlist enable` once.
+- "Full discography" pulls the top ~10 YouTube search results for that
+  artist name — it's a best-effort approximation, not a literal complete
+  catalog.
+- This streams audio from YouTube for personal use in a private server.
   You're responsible for complying with Discord's and YouTube's Terms of
   Service in how you use it.
-- If slash commands don't show up in Discord right away, wait a minute or
-  restart Discord — global command registration can take a moment to
-  propagate.
+- If disconnected from the 24/7 channel, the bot automatically rejoins after
+  a few seconds.
