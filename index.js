@@ -101,6 +101,38 @@ let playlistsData = loadPlaylists();
 // They survive restarts, but a fresh redeploy from GitHub can reset them.
 // For permanent storage, add a Volume to the service in Railway settings.
 
+// Optional: signing in with a YouTube cookie makes play-dl's requests look
+// authenticated instead of anonymous, which drastically cuts down on 429
+// (rate limit) errors from cloud server IPs like Railway's. See README.
+if (process.env.YT_COOKIE) {
+  play.setToken({ youtube: { cookie: process.env.YT_COOKIE } }).catch((err) =>
+    console.warn('Failed to set YouTube cookie for play-dl:', err.message)
+  );
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Retries transient failures (rate limits, brief network blips) with backoff.
+async function withRetry(fn, { attempts = 3, baseDelayMs = 2000 } = {}) {
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      const is429 = /429/.test(err.message || '');
+      if (i < attempts - 1) {
+        const delay = baseDelayMs * Math.pow(2, i);
+        console.warn(`Request failed (${is429 ? 'rate limited' : err.message}), retrying in ${delay}ms...`);
+        await sleep(delay);
+      }
+    }
+  }
+  throw lastErr;
+}
+
 function shuffled(arr) {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -138,13 +170,15 @@ function isAutoJoinGuild(guildId) {
 }
 
 async function resolveTrack(query) {
-  if (play.yt_validate(query) === 'video') {
-    const info = await play.video_info(query);
-    return { url: query, title: info.video_details.title };
-  }
-  const results = await play.search(query, { limit: 1, source: { youtube: 'video' } });
-  if (!results.length) return null;
-  return { url: results[0].url, title: results[0].title };
+  return withRetry(async () => {
+    if (play.yt_validate(query) === 'video') {
+      const info = await play.video_info(query);
+      return { url: query, title: info.video_details.title };
+    }
+    const results = await play.search(query, { limit: 1, source: { youtube: 'video' } });
+    if (!results.length) return null;
+    return { url: results[0].url, title: results[0].title };
+  });
 }
 
 async function playNext(guildId) {
@@ -168,7 +202,7 @@ async function playNext(guildId) {
   }
 
   try {
-    const stream = await play.stream(next.url);
+    const stream = await withRetry(() => play.stream(next.url));
     const resource = createAudioResource(stream.stream, { inputType: stream.type });
     session.player.play(resource);
     session.playing = true;
@@ -191,12 +225,22 @@ async function ensureConnected(guild, voiceChannel) {
   const session = getSession(guild.id);
   if (session.connection) return session;
 
-  session.connection = joinVoiceChannel({
+  const connection = joinVoiceChannel({
     channelId: voiceChannel.id,
     guildId: guild.id,
     adapterCreator: guild.voiceAdapterCreator,
   });
-  await entersState(session.connection, VoiceConnectionStatus.Ready, 20_000);
+
+  try {
+    await entersState(connection, VoiceConnectionStatus.Ready, 30_000);
+  } catch (err) {
+    // Clean up the half-open connection so a future retry can try again
+    // instead of getting stuck thinking we're already connected.
+    connection.destroy();
+    throw err;
+  }
+
+  session.connection = connection;
   session.connection.subscribe(session.player);
 
   session.player.on(AudioPlayerStatus.Idle, () => playNext(guild.id));
@@ -215,7 +259,7 @@ async function ensureConnected(guild, voiceChannel) {
   return session;
 }
 
-async function connectToAutoJoinChannel() {
+async function connectToAutoJoinChannel(attempt = 1) {
   if (!AUTO_JOIN_GUILD_ID || !AUTO_JOIN_CHANNEL_ID) return;
   if (!whitelist.has(AUTO_JOIN_GUILD_ID)) return;
 
@@ -224,8 +268,15 @@ async function connectToAutoJoinChannel() {
   const channel = guild.channels.cache.get(AUTO_JOIN_CHANNEL_ID);
   if (!channel) return console.warn('AUTO_JOIN_CHANNEL_ID not found in that guild.');
 
-  const session = await ensureConnected(guild, channel);
-  if (!session.playing) playNext(guild.id);
+  try {
+    const session = await ensureConnected(guild, channel);
+    if (!session.playing) playNext(guild.id);
+    console.log(`Connected to the 24/7 voice channel (attempt ${attempt}).`);
+  } catch (err) {
+    const delay = Math.min(60_000, 5_000 * attempt); // back off up to 60s
+    console.warn(`Auto-join attempt ${attempt} failed (${err.message}), retrying in ${delay / 1000}s...`);
+    setTimeout(() => connectToAutoJoinChannel(attempt + 1).catch(console.error), delay);
+  }
 }
 
 // ---------------- Slash commands ----------------
@@ -299,7 +350,9 @@ client.once('ready', async () => {
   console.log(`Logged in as ${client.user.tag}`);
   await registerCommands();
   await enforceWhitelist();
-  await connectToAutoJoinChannel().catch((err) => console.error('Auto-join failed:', err));
+  setTimeout(() => {
+    connectToAutoJoinChannel().catch((err) => console.error('Auto-join failed:', err));
+  }, 3000);
 });
 
 // ---------------- Interaction handling ----------------
@@ -350,7 +403,7 @@ client.on('interactionCreate', async (interaction) => {
         if (!isBooster) {
           return interaction.editReply('Only boosted members can play an entire playlist.');
         }
-        const results = await play.search(artist, { limit: 10, source: { youtube: 'video' } });
+        const results = await withRetry(() => play.search(artist, { limit: 10, source: { youtube: 'video' } }));
         if (!results.length) return interaction.editReply(`Couldn't find anything for **${artist}**.`);
 
         for (const r of results) {

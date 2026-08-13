@@ -77,6 +77,36 @@ A member counts as a "booster" if Discord shows them as currently boosting
 **that server** (`member.premiumSince` is set). This is Discord's own boost
 status — there's nothing extra to configure.
 
+## Troubleshooting: "won't join" / "won't play anything"
+
+Two separate issues cause this, and both are now handled automatically, but
+one needs a bit of setup from you for best results:
+
+**Voice connection timing out.** Occasionally Discord's voice handshake is
+slow right after the bot starts. The bot now retries automatically with
+backoff (5s, 10s, 15s... up to every 60s) instead of giving up after one
+try — check the Deploy Logs for `Connected to the 24/7 voice channel` to
+confirm it worked.
+
+**YouTube rate-limiting (`429` errors).** Cloud server IPs — including
+Railway's — get rate-limited or blocked by YouTube more aggressively than a
+normal home connection, since many unrelated apps share the same IPs. The
+bot now retries failed searches/streams automatically, but the real fix is
+adding a YouTube cookie so requests look authenticated:
+
+1. On a computer or phone browser, log into youtube.com with any Google
+   account (a throwaway account is fine — don't use your main one).
+2. Install a cookie-export extension (e.g. "Get cookies.txt LOCALLY" on
+   Chrome) or use your browser's dev tools to copy the full `Cookie` header
+   sent to youtube.com.
+3. In Railway → Variables, add `YT_COOKIE` with that full cookie string as
+   the value.
+4. Redeploy. This alone fixes the vast majority of 429 errors.
+
+If you skip this step, the bot will still work, but expect occasional
+failed searches/streams especially when a lot of requests happen quickly
+(e.g. a booster requesting a full discography).
+
 ## Notes & limitations
 
 - `whitelist.json` and `playlists.json` are stored on Railway's disk. They
